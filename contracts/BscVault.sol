@@ -11,21 +11,25 @@ contract BscVault is Ownable {
     using SafeERC20 for IERC20;
 
     uint public constant MIN_AMOUNT = 1e18;
+    uint public swapCommission;
+    uint public totalCommission;
     address public rootToken;
+    address public commissionReceiver;
 
     struct MinterEntity {
         address minter;
         address token;
         bool active;
+        uint lockedAmount;
     }
 
     mapping (uint8 => MinterEntity) public registeredChains; // chainID => MinterEntity
 
-    event Deposit(uint8 indexed toChain, address indexed fromAddr, address indexed toAddr, uint amount);
-    event Withdraw(uint8 indexed fromChain, address indexed fromAddr, address indexed toAddr, uint amount);
+    event SwapStart(uint8 indexed toChain, address indexed fromAddr, address indexed toAddr, uint amount);
+    event SwapEnd(uint8 indexed fromChain, address indexed fromAddr, address indexed toAddr, uint amount);
 
-    modifier onlyActivatedChains(uint8 _chainID){
-        require(registeredChains[_chainID].active == true, "Only activated chains");
+    modifier onlyActivatedChains(uint8 chainID){
+        require(registeredChains[chainID].active == true, "Only activated chains");
         _;
     }
 
@@ -33,44 +37,69 @@ contract BscVault is Ownable {
         rootToken = _rootToken;
     }
     
-    function addNewChain(uint8 _chainID, address _minter, address _token) public onlyOwner returns(bool){
-        require(registeredChains[_chainID].minter == address(0), 'Chain has already been registered');
+    function setCommissionParameters(uint _swapCommission, address _commissionReceiver) external onlyOwner{
+        require(_swapCommission <10000, "swapCommission must be lt 10000");
+        require(_commissionReceiver != address(0));
+        swapCommission = _swapCommission;
+        commissionReceiver = _commissionReceiver;
+    }
+
+    function addNewChain(uint8 chainID, address minter, address token) public onlyOwner returns(bool){
+        require(registeredChains[chainID].minter == address(0), 'ChainID has already been registered');
         MinterEntity memory minterEntity = MinterEntity({
-            minter: _minter,
-            token: _token,
-            active: true
+            minter: minter,
+            token: token,
+            active: true,
+            lockedAmount: 0
         });
-        registeredChains[_chainID] = minterEntity;
+        registeredChains[chainID] = minterEntity;
         return true;
     }
 
-    function changeActivationChain(uint8 _chainID, bool _activate) public onlyOwner returns(bool){
-        require(registeredChains[_chainID].minter != address(0), 'Chain is not registered');
-        registeredChains[_chainID].active = _activate;
+    function changeActivationChain(uint8 chainID, bool activate) public onlyOwner returns(bool){
+        require(registeredChains[chainID].minter != address(0), 'Chain is not registered');
+        registeredChains[chainID].active = activate;
         return true;
     }
 
-    function deposit(uint8 _toChainID, address _to, uint _amount) public onlyActivatedChains(_toChainID){
-
-        _deposit(_toChainID, _to, _amount);
+    function swapStart(uint8 toChainID, address to, uint amount) public onlyActivatedChains(toChainID){
+        require(amount >= MIN_AMOUNT && to != address(0));
+        if(swapCommission > 0 && commissionReceiver != address(0)){
+            uint commission = _commissionCalculate(amount);
+            amount = amount.sub(commission);
+            totalCommission = totalCommission.add(commission);
+        }
+        _depositToken(amount);
+        emit SwapStart(toChainID, msg.sender, to, amount);
     }
 
-    function _deposit(uint8 _toChainID, address _to, uint _amount) private onlyActivatedChains(_toChainID){
-        require(_amount >= MIN_AMOUNT);
-        IERC20(rootToken).safeTransferFrom(msg.sender, address(this), _amount);
-        
-        emit Deposit(_toChainID, msg.sender, _to, _amount);
+    function _depositToken(uint amount) private {
+        IERC20(rootToken).safeTransferFrom(msg.sender, address(this), amount);
     }
 
-    function withdraw(uint8 _FromChainID, address _from, address _to, uint _amount) public onlyOwner onlyActivatedChains(_FromChainID){
-        _withdrawRootToken(_to, _amount);
-        emit Withdraw(_FromChainID, _from, _to, _amount);
+    function swapEnd(uint8 fromChainID, address from, address to, uint amount) public onlyOwner onlyActivatedChains(fromChainID){
+        require(amount >= MIN_AMOUNT);
+        if(swapCommission > 0 && commissionReceiver != address(0)){
+            uint commission = _commissionCalculate(amount);
+            amount = amount.sub(commission);
+            totalCommission = totalCommission.add(commission);
+        }
+        _withdrawRootToken(to, amount);
+        emit SwapEnd(fromChainID, from, to, amount);
     }
 
-    function _withdrawRootToken(address _to, uint _amount) private {
-        require(IERC20(rootToken).balanceOf(address(this) >= _amount);
-        require(_amount >= MIN_AMOUNT);
+    function _withdrawRootToken(address to, uint amount) private {
+        require(IERC20(rootToken).balanceOf(address(this)) >= amount);
+        IERC20(rootToken).safeTransfer(to, amount);
+    }
 
-        IERC20(rootToken).safeTransfer(_to, _amount);
+    function _commissionCalculate(uint amount) internal view returns(uint fee){
+        fee = commissionReceiver != address(0) ? amount.mul(swapCommission).div(10000) : 0;
+    }
+
+    function withdrawFee() public onlyOwner{
+        require(commissionReceiver != address(0),"Fee receiver not set");
+        _withdrawRootToken(commissionReceiver, totalCommission);
+        totalCommission = 0;
     }
 }
