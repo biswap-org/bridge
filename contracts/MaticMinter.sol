@@ -10,27 +10,63 @@ contract MaticMinter is Ownable{
     using SafeERC20 for IERC20;
     using SafeMath for uint;
 
-    uint8 public vaultChainID;
     uint public constant MIN_AMOUNT = 1e18;
     address public tokenAddress;
+    bool public isActive;
+    
+    struct EventStr{
+        uint blockNumber;
+        uint8 chainID;
+        address from;
+        address to;
+        uint amount;
+        // bool direction; //true: vault => minter and vice versa
+        bool isComplited;
+    }
 
-    event SwapStart(uint8 indexed toChain, address indexed fromAddr, address indexed toAddr, uint amount);
-    event SwapEnd(uint8 indexed fromChain, address indexed fromAddr, address indexed toAddr, uint amount);
+    mapping (bytes32 => EventStr) public eventStore;
+
+    event SwapStart(address indexed fromAddr, address indexed toAddr, uint amount);
+    event SwapEnd(bytes32 indexed eventHash, uint8 fromChain, address indexed fromAddr, address indexed toAddr, uint amount);
 
     constructor(address _tokenAddress) public{
         tokenAddress = _tokenAddress;
+        isActive = true;
+    }
+    
+    modifier onlyActivated(){
+        require(isActive, "Avaliable only when activated");
+        _;
     }
 
-    function swapStart(address to, uint amount) public{
+    function swapStart(address to, uint amount) public onlyActivated{
         require(amount >= MIN_AMOUNT && to != address(0));
-
         IERC20(tokenAddress).safeBurn(msg.sender, amount);
-
-        emit SwapStart(vaultChainID, msg.sender, to, amount);
+        emit SwapStart(msg.sender, to, amount);
     }
 
-    function swapEnd(address from, address to, uint amount) public onlyOwner{
-        
+    function swapEnd(bytes32 eventHash, uint8 fromChainID, uint blockNumber, address from, address to, uint amount) public onlyOwner onlyActivated{
+        require(amount > 0 && to != address(0));
+        bytes32 reseivedHash = keccak256(abi.encode(blockNumber, fromChainID, from, to, amount));
+        require(reseivedHash == eventHash, "Wrong args received");
+        require(eventStore[reseivedHash].isComplited == false, "Swap was ended!");
+        EventStr memory eventStr = EventStr({
+            blockNumber: blockNumber,
+            chainID: fromChainID,
+            from: from,
+            to: to,
+            amount: amount,
+            isComplited: true
+        });
+        eventStore[reseivedHash] = eventStr;
+
+        IERC20(tokenAddress).safeMint(to, amount);
+        emit SwapEnd(reseivedHash, fromChainID, from, to, amount);
+    }
+
+    function setSwapComplite(bytes32 eventHash) public onlyOwner{
+        require(eventStore[eventHash].blockNumber != 0, "Event hash not finded");
+        eventStore[eventHash].isComplited = true;
     }
 
 }

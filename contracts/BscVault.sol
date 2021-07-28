@@ -4,7 +4,7 @@ import "./libs/Address.sol";
 import "./libs/SafeMath.sol";
 import "./libs/SafeERC20.sol";
 import "./libs/Ownable.sol";
-import "./interfaces/IERC20.sol";
+// import "./interfaces/IERC20.sol";
 
 contract BscVault is Ownable {
     using SafeMath for uint;
@@ -12,20 +12,30 @@ contract BscVault is Ownable {
 
     uint public constant MIN_AMOUNT = 1e18;
     uint public swapCommission;
-    uint public totalCommission;
     address public rootToken;
     address public commissionReceiver;
+    bool public pause = false;
 
-    struct MinterEntity {
+    struct MinterEntity{
         address minter;
         address token;
         bool active;
-        uint lockedAmount;
+    }
+
+    struct EventStr{
+        uint blockNumber;
+        uint8 chainID;
+        address from;
+        address to;
+        uint amount;
+        // bool direction; //true: vault => minter and vice versa
+        bool isComplited;
     }
 
     mapping (uint8 => MinterEntity) public registeredChains; // chainID => MinterEntity
+    mapping (bytes32 => EventStr) public eventStore;
 
-    event SwapStart(uint8 indexed toChain, address indexed fromAddr, address indexed toAddr, uint amount);
+    event SwapStart(bytes32 indexed eventHash, uint blokNumber, uint8 indexed toChain, address fromAddr, address indexed toAddr, uint amount);
     event SwapEnd(uint8 indexed fromChain, address indexed fromAddr, address indexed toAddr, uint amount);
 
     modifier onlyActivatedChains(uint8 chainID){
@@ -33,10 +43,20 @@ contract BscVault is Ownable {
         _;
     }
 
+    modifier stopBridging(){
+        require(!pause, "bridge is paused");
+        _;
+    }
+
     constructor(address _rootToken) public {
         rootToken = _rootToken;
+        commissionReceiver = msg.sender;
     }
     
+    function pausedBridge(bool _pause) public onlyOwner{
+        pause = _pause;
+    }
+
     function setCommissionParameters(uint _swapCommission, address _commissionReceiver) external onlyOwner{
         require(_swapCommission <10000, "swapCommission must be lt 10000");
         require(_commissionReceiver != address(0));
@@ -49,47 +69,61 @@ contract BscVault is Ownable {
         MinterEntity memory minterEntity = MinterEntity({
             minter: minter,
             token: token,
-            active: true,
-            lockedAmount: 0
+            active: true
         });
         registeredChains[chainID] = minterEntity;
         return true;
     }
 
-    function changeActivationChain(uint8 chainID, bool activate) public onlyOwner returns(bool){
+    function changeActivationChain(uint8 chainID, bool activate) public onlyOwner{
         require(registeredChains[chainID].minter != address(0), 'Chain is not registered');
         registeredChains[chainID].active = activate;
-        return true;
     }
 
-    function swapStart(uint8 toChainID, address to, uint amount) public onlyActivatedChains(toChainID){
+    function swapStart(uint8 toChainID, address to, uint amount) public onlyActivatedChains(toChainID) stopBridging{
         require(amount >= MIN_AMOUNT && to != address(0));
-        if(swapCommission > 0 && commissionReceiver != address(0)){
-            uint commission = _commissionCalculate(amount);
+        uint commission;
+        if(swapCommission > 0){
+            commission = _commissionCalculate(amount);
             amount = amount.sub(commission);
-            totalCommission = totalCommission.add(commission);
         }
+
+        EventStr memory eventStr = EventStr({
+            blockNumber: block.number,
+            chainID: getChainID(),
+            from: msg.sender,
+            to: to,
+            amount: amount,
+            isComplited: false
+        });
+        bytes32 eventHash = keccak256(abi.encode(block.number, getChainID(), msg.sender, to, amount));
+        require(eventStore[eventHash].blockNumber == 0, "It's avaliable just 1 swap in current block with same: chainID, from, to, amount");
+        eventStore[eventHash] = eventStr;
         _depositToken(amount);
-        emit SwapStart(toChainID, msg.sender, to, amount);
+        _withdrawCommission(commission);
+        emit SwapStart(eventHash, block.number, toChainID, msg.sender, to, amount);
     }
 
     function _depositToken(uint amount) private {
         IERC20(rootToken).safeTransferFrom(msg.sender, address(this), amount);
     }
 
-    function swapEnd(uint8 fromChainID, address from, address to, uint amount) public onlyOwner onlyActivatedChains(fromChainID){
-        require(amount >= MIN_AMOUNT);
-        if(swapCommission > 0 && commissionReceiver != address(0)){
+    function swapEnd(uint8 fromChainID, address from, address to, uint amount) public onlyOwner onlyActivatedChains(fromChainID) stopBridging{
+        if(swapCommission > 0){
             uint commission = _commissionCalculate(amount);
             amount = amount.sub(commission);
-            totalCommission = totalCommission.add(commission);
+            _withdrawCommission(commission);
         }
-        _withdrawRootToken(to, amount);
+        _transferToken(to, amount);
         emit SwapEnd(fromChainID, from, to, amount);
     }
 
-    function _withdrawRootToken(address to, uint amount) private {
-        require(IERC20(rootToken).balanceOf(address(this)) >= amount);
+    function setSwapComplite(bytes32 eventHash) public onlyOwner{
+        require(eventStore[eventHash].blockNumber != 0, "Event hash not finded");
+        eventStore[eventHash].isComplited = true;
+    }
+
+    function _transferToken(address to, uint amount) private {
         IERC20(rootToken).safeTransfer(to, amount);
     }
 
@@ -97,9 +131,17 @@ contract BscVault is Ownable {
         fee = commissionReceiver != address(0) ? amount.mul(swapCommission).div(10000) : 0;
     }
 
-    function withdrawFee() public onlyOwner{
-        require(commissionReceiver != address(0),"Fee receiver not set");
-        _withdrawRootToken(commissionReceiver, totalCommission);
-        totalCommission = 0;
+    function _withdrawCommission(uint commission) internal{
+        if(commission > 0){
+            _transferToken(commissionReceiver, commission);
+        }
+    }
+    
+    function getChainID() internal pure returns (uint8) {
+        uint8 id;
+        assembly {
+            id := chainid()
+        }
+        return id;
     }
 }
