@@ -61,6 +61,7 @@ contract MaticMinter is Ownable{
 
     function swapEnd(uint8 fromChainID, bytes32 eventHash, uint blockNumber, address from, address to, uint amount) public onlyOwner stopBridge{
         require(amount > 0 && to != address(0));
+        require(fromChainID != getChainID(), "Swop worked between different chains");
         bytes32 reseivedHash = keccak256(abi.encode(blockNumber, fromChainID, from, to, amount));
         require(reseivedHash == eventHash, "Wrong args received");
         require(eventStore[reseivedHash].isComplited == false, "Swap was ended before!");
