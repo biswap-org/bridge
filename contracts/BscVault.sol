@@ -35,15 +35,18 @@ contract BscVault is Ownable {
     mapping (uint8 => MinterEntity) public registeredChains; // chainID => MinterEntity
     mapping (bytes32 => EventStr) public eventStore;
 
-    event SwapStart(bytes32 indexed eventHash, uint blokNumber, uint8 indexed toChain, address fromAddr, address indexed toAddr, uint amount);
-    event SwapEnd(uint8 indexed fromChain, address indexed fromAddr, address indexed toAddr, uint amount);
+    event SwapStart(bytes32 indexed eventHash, uint blokNumber, uint8 indexed toChainID, address fromAddr, address indexed toAddr, uint amount);
+    event SwapEnd(bytes32 indexed eventHash, uint8 indexed fromChainID, address fromAddr, address indexed toAddr, uint amount);
+    
+    //emit when started swap was ended in target chain
+    event SwapComplited(bytes32 indexed eventHash, address fromAddr, address toAddr, uint amount);
 
     modifier onlyActivatedChains(uint8 chainID){
         require(registeredChains[chainID].active == true, "Only activated chains");
         _;
     }
 
-    modifier stopBridging(){
+    modifier stopBridge(){
         require(!pause, "bridge is paused");
         _;
     }
@@ -80,14 +83,13 @@ contract BscVault is Ownable {
         registeredChains[chainID].active = activate;
     }
 
-    function swapStart(uint8 toChainID, address to, uint amount) public onlyActivatedChains(toChainID) stopBridging{
+    function swapStart(uint8 toChainID, address to, uint amount) public onlyActivatedChains(toChainID) stopBridge{
         require(amount >= MIN_AMOUNT && to != address(0));
         uint commission;
         if(swapCommission > 0){
             commission = _commissionCalculate(amount);
             amount = amount.sub(commission);
         }
-
         EventStr memory eventStr = EventStr({
             blockNumber: block.number,
             chainID: getChainID(),
@@ -108,19 +110,37 @@ contract BscVault is Ownable {
         IERC20(rootToken).safeTransferFrom(msg.sender, address(this), amount);
     }
 
-    function swapEnd(uint8 fromChainID, address from, address to, uint amount) public onlyOwner onlyActivatedChains(fromChainID) stopBridging{
+    function swapEnd(uint8 fromChainID, bytes32 eventHash, uint blockNumber, address from, address to, uint amount) public onlyOwner onlyActivatedChains(fromChainID) stopBridge{
+        require(amount > 0 && to != address(0));
+        bytes32 reseivedHash = keccak256(abi.encode(blockNumber, fromChainID, from, to, amount));
+        require(reseivedHash == eventHash, "Wrong args received");
+        require(eventStore[reseivedHash].isComplited == false, "Swap was ended before!");
+        EventStr memory eventStr = EventStr({
+            blockNumber: blockNumber,
+            chainID: fromChainID,
+            from: from,
+            to: to,
+            amount: amount,
+            isComplited: true
+        });
+        eventStore[reseivedHash] = eventStr;
+
         if(swapCommission > 0){
             uint commission = _commissionCalculate(amount);
             amount = amount.sub(commission);
             _withdrawCommission(commission);
         }
         _transferToken(to, amount);
-        emit SwapEnd(fromChainID, from, to, amount);
+        emit SwapEnd(reseivedHash, fromChainID, from, to, amount);
     }
 
     function setSwapComplite(bytes32 eventHash) public onlyOwner{
         require(eventStore[eventHash].blockNumber != 0, "Event hash not finded");
         eventStore[eventHash].isComplited = true;
+        address fromAddr = eventStore[eventHash].from;
+        address toAddr = eventStore[eventHash].to;
+        uint amount = eventStore[eventHash].amount;
+        emit SwapComplited(eventHash, fromAddr, toAddr, amount);
     }
 
     function _transferToken(address to, uint amount) private {
