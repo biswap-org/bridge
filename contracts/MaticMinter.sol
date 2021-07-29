@@ -1,4 +1,4 @@
-pragma solidity =0.6.6;
+pragma solidity 0.6.6;
 
 /*
  * @dev Provides information about the current execution context, including the
@@ -69,10 +69,10 @@ abstract contract Ownable is Context {
      * NOTE: Renouncing ownership will leave the contract without an owner,
      * thereby removing any functionality that is only available to the owner.
      */
-    function renounceOwnership() public virtual onlyOwner {
-        emit OwnershipTransferred(_owner, address(0));
-        _owner = address(0);
-    }
+    // function renounceOwnership() public virtual onlyOwner {
+    //     emit OwnershipTransferred(_owner, address(0));
+    //     _owner = address(0);
+    // }
 
     /**
      * @dev Transfers ownership of the contract to a new account (`newOwner`).
