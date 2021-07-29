@@ -19,7 +19,7 @@ task("accounts", "Prints the list of accounts", async () => {
  * @type import('hardhat/config').HardhatUserConfig
  */
 module.exports = {
-  defaultNetwork: "mainnet",
+  defaultNetwork: "hardhat",
   networks: {
     localhost: {
       url: "http://127.0.0.1:8545"
@@ -37,13 +37,26 @@ module.exports = {
       chainId: 56,
       gasPrice: 20000000000,
       accounts: {mnemonic: mnemonic}
-    }
+    },
+    testnetMatic: {
+      url: "https://rpc-mumbai.maticvigil.com/",
+      chainId: 80001,
+      gasPrice: 20000000000,
+      accounts: {mnemonic: mnemonic}
+    },
+    mainnetMatic: {
+      url: "https://rpc-mainnet.maticvigil.com/",
+      chainId: 137,
+      gasPrice: 20000000000,
+      accounts: {mnemonic: mnemonic}
+    },
   },
   solidity: {
-  version: "0.5.16",
+  version: "0.6.6",
   settings: {
     optimizer: {
-      enabled: true
+      enabled: true,
+      runs: 500,
     }
    }
   },
