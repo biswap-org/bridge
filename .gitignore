@@ -1,5 +1,6 @@
 node_modules
-
+./contract/BSWToken.sol
+./contract/MaticBSWToken.sol
 #Hardhat files
 cache
 artifacts

@@ -709,7 +709,7 @@ abstract contract Pausable is Context {
         emit Unpaused(_msgSender());
     }
 }
-
+import "hardhat/console.sol";
 contract BscVault is Ownable, Pausable {
     using SafeMath for uint;
     using SafeERC20 for IERC20;
@@ -728,20 +728,20 @@ contract BscVault is Ownable, Pausable {
 
     struct EventStr {
         uint depositCount;
-        uint8 chainID;
+        uint chainID;
         address from;
         address to;
         uint amount;
         bool isCompleted;
     }
 
-    mapping (uint8 => MinterEntity) public registeredChains; // chainID => MinterEntity
+    mapping (uint => MinterEntity) public registeredChains; // chainID => MinterEntity
     mapping (bytes32 => EventStr) public eventStore;
 
     event SwapStart (
         bytes32 indexed eventHash,
         uint depositCount,
-        uint8 indexed toChainID, 
+        uint indexed toChainID,
         address indexed fromAddr, 
         address  toAddr, 
         uint amount
@@ -749,7 +749,7 @@ contract BscVault is Ownable, Pausable {
     event SwapEnd (
         bytes32 indexed eventHash,
         uint depositCount,
-        uint8 indexed fromChainID, 
+        uint indexed fromChainID,
         address indexed fromAddr, 
         address  toAddr, 
         uint amount
@@ -758,7 +758,7 @@ contract BscVault is Ownable, Pausable {
     //emit when started swap from current chain was ended in target chain
     event SwapCompleted(bytes32 indexed eventHash, uint depositCount, address fromAddr, address toAddr, uint amount);
 
-    modifier onlyActivatedChains(uint8 chainID){
+    modifier onlyActivatedChains(uint chainID){
         require(registeredChains[chainID].active == true, "Only activated chains");
         _;
     }
@@ -781,7 +781,7 @@ contract BscVault is Ownable, Pausable {
         commissionReceiver = _commissionReceiver;
     }
 
-    function addNewChain(uint8 chainID, address minter, address token) public onlyOwner returns(bool){
+    function addNewChain(uint chainID, address minter, address token) public onlyOwner returns(bool){
         require(minter != address (0), "Minter address must not be 0x0");
         require(registeredChains[chainID].minter == address(0), 'ChainID has already been registered');
         MinterEntity memory minterEntity = MinterEntity({
@@ -794,13 +794,13 @@ contract BscVault is Ownable, Pausable {
         return true;
     }
 
-    function changeActivationChain(uint8 chainID, bool activate) public onlyOwner{
+    function changeActivationChain(uint chainID, bool activate) public onlyOwner{
         require(registeredChains[chainID].minter != address(0), 'Chain is not registered');
         registeredChains[chainID].active = activate;
     }
 
     function swapStart(
-        uint8 toChainID,
+        uint toChainID,
         address to,
         uint amount
         ) public onlyActivatedChains(toChainID) whenNotPaused notContract{
@@ -815,7 +815,7 @@ contract BscVault is Ownable, Pausable {
         }
         registeredChains[toChainID].depositCount += 1;
         uint _depositCount = registeredChains[toChainID].depositCount;
-        uint8 _chainID = getChainID();
+        uint _chainID = getChainID();
         EventStr memory eventStr = EventStr({
             depositCount: _depositCount,
             chainID: _chainID,
@@ -825,6 +825,7 @@ contract BscVault is Ownable, Pausable {
             isCompleted: false
         });
         bytes32 eventHash = keccak256(abi.encode(_depositCount, _chainID, msg.sender, to, amount));
+        console.logBytes(abi.encode(_depositCount, _chainID, msg.sender, to, amount));
         require(eventStore[eventHash].depositCount == 0,
             "It's available just 1 swap with same: chainID, depositCount from, to, amount");
         eventStore[eventHash] = eventStr;
@@ -835,7 +836,7 @@ contract BscVault is Ownable, Pausable {
     function swapEnd(
         bytes32 eventHash,
         uint depositCount,
-        uint8 fromChainID,
+        uint fromChainID,
         address from,
         address to,
         uint amount
@@ -894,8 +895,8 @@ contract BscVault is Ownable, Pausable {
         }
     }
     
-    function getChainID() internal pure returns (uint8) {
-        uint8 id;
+    function getChainID() internal pure returns (uint) {
+        uint id;
         assembly {
             id := chainid()
         }

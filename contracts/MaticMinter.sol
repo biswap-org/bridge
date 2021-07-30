@@ -670,11 +670,11 @@ contract MaticMinter is Ownable, Pausable{
     uint public constant MIN_AMOUNT = 1e18;
     address public tokenAddress;
     uint public depositCount;
-    uint8 public vaultChainID;
+    uint public vaultChainID;
     
     struct EventStr{
         uint depositCount;
-        uint8 chainID;
+        uint chainID;
         address from;
         address to;
         uint amount;
@@ -686,7 +686,7 @@ contract MaticMinter is Ownable, Pausable{
     event SwapStart(
         bytes32 indexed eventHash, 
         uint depositCount,
-        uint8 indexed toChainID,
+        uint indexed toChainID,
         address indexed fromAddr, 
         address toAddr, 
         uint amount
@@ -694,7 +694,7 @@ contract MaticMinter is Ownable, Pausable{
     event SwapEnd(
         bytes32 indexed eventHash,
         uint depositCount,
-        uint8 indexed fromChainID, 
+        uint indexed fromChainID,
         address indexed fromAddr, 
         address toAddr, 
         uint amount
@@ -703,7 +703,7 @@ contract MaticMinter is Ownable, Pausable{
     //emit when started swap was ended in target chain
     event SwapCompleted(bytes32 indexed eventHash, uint depositCount, address fromAddr, address toAddr, uint amount);
 
-    constructor(address _tokenAddress, uint8 _vaultChainID) public{
+    constructor(address _tokenAddress, uint _vaultChainID) public{
         tokenAddress = _tokenAddress;
         depositCount = 0;
         vaultChainID = _vaultChainID;
@@ -721,7 +721,7 @@ contract MaticMinter is Ownable, Pausable{
         IERC20(tokenAddress).safeBurn(msg.sender, amount);
         depositCount +=1;
         uint _depositCount = depositCount;
-        uint8 _chainID = getChainID();
+        uint _chainID = getChainID();
         EventStr memory eventStr = EventStr({
             depositCount: _depositCount,
             chainID: _chainID,
@@ -740,7 +740,7 @@ contract MaticMinter is Ownable, Pausable{
     function swapEnd(
         bytes32 eventHash,
         uint _depositCount,
-        uint8 fromChainID,
+        uint fromChainID,
         address from,
         address to,
         uint amount
@@ -776,15 +776,15 @@ contract MaticMinter is Ownable, Pausable{
         emit SwapCompleted(eventHash, _depositCount,  fromAddr, toAddr, amount);
     }
 
-    function getChainID() internal pure returns (uint8) {
-        uint8 id;
+    function getChainID() internal pure returns (uint) {
+        uint id;
         assembly {
             id := chainid()
         }
         return id;
     }
 
-    function setTokenAddressAndVaultChainID(address _tokenAddress, uint8 _vaultChainID) public onlyOwner {
+    function setTokenAddressAndVaultChainID(address _tokenAddress, uint _vaultChainID) public onlyOwner {
         tokenAddress = _tokenAddress;
         vaultChainID = _vaultChainID;
     }
