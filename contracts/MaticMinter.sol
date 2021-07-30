@@ -669,9 +669,11 @@ contract MaticMinter is Ownable, Pausable{
 
     uint public constant MIN_AMOUNT = 1e18;
     address public tokenAddress;
+    uint public depositCount;
+    uint8 public vaultChainID;
     
     struct EventStr{
-        uint blockNumber;
+        uint depositCount;
         uint8 chainID;
         address from;
         address to;
@@ -683,13 +685,15 @@ contract MaticMinter is Ownable, Pausable{
 
     event SwapStart(
         bytes32 indexed eventHash, 
-        uint blokNumber, 
+        uint depositCount,
+        uint8 indexed toChainID,
         address indexed fromAddr, 
         address toAddr, 
         uint amount
         );
     event SwapEnd(
-        bytes32 indexed eventHash, 
+        bytes32 indexed eventHash,
+        uint depositCount,
         uint8 indexed fromChainID, 
         address indexed fromAddr, 
         address toAddr, 
@@ -697,10 +701,12 @@ contract MaticMinter is Ownable, Pausable{
         );
     
     //emit when started swap was ended in target chain
-    event SwapCompleted(bytes32 indexed eventHash, address fromAddr, address toAddr, uint amount);
+    event SwapCompleted(bytes32 indexed eventHash, uint depositCount, address fromAddr, address toAddr, uint amount);
 
-    constructor(address _tokenAddress) public{
+    constructor(address _tokenAddress, uint8 _vaultChainID) public{
         tokenAddress = _tokenAddress;
+        depositCount = 0;
+        vaultChainID = _vaultChainID;
     }
 
     modifier notContract() {
@@ -709,58 +715,65 @@ contract MaticMinter is Ownable, Pausable{
         _;
     }
 
-    function swapStart(address to, uint amount) public whenNotPaused{
+    function swapStart(address to, uint amount) public whenNotPaused notContract{
         require(amount >= MIN_AMOUNT && to != address(0));
         require(IERC20(tokenAddress).balanceOf(msg.sender) >= amount, "Not enough balance");
         IERC20(tokenAddress).safeBurn(msg.sender, amount);
+        depositCount +=1;
+        uint _depositCount = depositCount;
+        uint8 _chainID = getChainID();
         EventStr memory eventStr = EventStr({
-            blockNumber: block.number,
-            chainID: getChainID(),
+            depositCount: _depositCount,
+            chainID: _chainID,
             from: msg.sender,
             to: to,
             amount: amount,
-            isComplited: false
+            isCompleted: false
         });
-        bytes32 eventHash = keccak256(abi.encode(block.number, getChainID(), msg.sender, to, amount));
-        require(eventStore[eventHash].blockNumber == 0, "It's avaliable just 1 swap in current block with same: chainID, from, to, amount");
+        bytes32 eventHash = keccak256(abi.encode(_depositCount, _chainID, msg.sender, to, amount));
+        require(eventStore[eventHash].depositCount == 0,
+            "It's available just 1 swap with same: depositCount from, to, amount");
         eventStore[eventHash] = eventStr;
-        emit SwapStart(eventHash, block.number, msg.sender, to, amount);
+        emit SwapStart(eventHash, _depositCount, vaultChainID, msg.sender, to, amount);
     }
 
     function swapEnd(
-        uint8 fromChainID, 
-        bytes32 eventHash, 
-        uint blockNumber, 
-        address from, 
-        address to, 
+        bytes32 eventHash,
+        uint _depositCount,
+        uint8 fromChainID,
+        address from,
+        address to,
         uint amount
         ) public onlyOwner whenNotPaused {
         require(amount > 0 && to != address(0));
-        require(fromChainID != getChainID(), "Swap work between different chains");
-        bytes32 reseivedHash = keccak256(abi.encode(blockNumber, fromChainID, from, to, amount));
-        require(reseivedHash == eventHash, "Wrong args received");
-        require(eventStore[reseivedHash].isCompleted == false, "Swap was ended before!");
+        require(fromChainID != getChainID(), "Swap only work between different chains");
+        bytes32 receivedHash = keccak256(abi.encode(_depositCount, fromChainID, from, to, amount));
+        require(receivedHash == eventHash, "Wrong args received");
+        require(eventStore[receivedHash].isCompleted == false, "Swap was ended before!");
         EventStr memory eventStr = EventStr({
-            blockNumber: blockNumber,
+            depositCount: _depositCount,
             chainID: fromChainID,
             from: from,
             to: to,
             amount: amount,
-            isComplited: true
+            isCompleted: true
         });
-        eventStore[reseivedHash] = eventStr;
+        eventStore[receivedHash] = eventStr;
 
         IERC20(tokenAddress).safeMint(to, amount);
-        emit SwapEnd(reseivedHash, fromChainID, from, to, amount);
+        emit SwapEnd(receivedHash, _depositCount, fromChainID, from, to, amount);
     }
 
     function setSwapComplete(bytes32 eventHash) public onlyOwner {
-        require(eventStore[eventHash].blockNumber != 0, "Event hash not finded");
+        require(eventStore[eventHash].depositCount != 0, "Event hash not found");
+        require(eventStore[eventHash].chainID == getChainID(),
+            "swap from another chain can be completed from swapEnd()");
         eventStore[eventHash].isCompleted = true;
         address fromAddr = eventStore[eventHash].from;
         address toAddr = eventStore[eventHash].to;
         uint amount = eventStore[eventHash].amount;
-        emit SwapCompleted(eventHash, fromAddr, toAddr, amount);
+        uint _depositCount = eventStore[eventHash].depositCount;
+        emit SwapCompleted(eventHash, _depositCount,  fromAddr, toAddr, amount);
     }
 
     function getChainID() internal pure returns (uint8) {
@@ -771,9 +784,9 @@ contract MaticMinter is Ownable, Pausable{
         return id;
     }
 
-    function setTokenAddress(address _tokenAddress) public onlyOwner {
+    function setTokenAddressAndVaultChainID(address _tokenAddress, uint8 _vaultChainID) public onlyOwner {
         tokenAddress = _tokenAddress;
-
+        vaultChainID = _vaultChainID;
     }
 
     function _isContract(address addr) internal view returns (bool) {

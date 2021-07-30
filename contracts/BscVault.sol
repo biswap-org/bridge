@@ -718,17 +718,16 @@ contract BscVault is Ownable, Pausable {
     uint public swapCommission;
     address public rootToken;
     address public commissionReceiver;
-    uint public totalSend = 0;
-    uint public totalReceived = 0;
 
     struct MinterEntity {
         address minter;
         address token;
         bool active;
+        uint depositCount;
     }
 
     struct EventStr {
-        uint blockNumber;
+        uint depositCount;
         uint8 chainID;
         address from;
         address to;
@@ -740,15 +739,16 @@ contract BscVault is Ownable, Pausable {
     mapping (bytes32 => EventStr) public eventStore;
 
     event SwapStart (
-        bytes32 indexed eventHash, 
-        uint blokNumber, 
+        bytes32 indexed eventHash,
+        uint depositCount,
         uint8 indexed toChainID, 
         address indexed fromAddr, 
         address  toAddr, 
         uint amount
         );
     event SwapEnd (
-        bytes32 indexed eventHash, 
+        bytes32 indexed eventHash,
+        uint depositCount,
         uint8 indexed fromChainID, 
         address indexed fromAddr, 
         address  toAddr, 
@@ -756,7 +756,7 @@ contract BscVault is Ownable, Pausable {
         );
     
     //emit when started swap from current chain was ended in target chain
-    event SwapCompleted(bytes32 indexed eventHash, address fromAddr, address toAddr, uint amount);
+    event SwapCompleted(bytes32 indexed eventHash, uint depositCount, address fromAddr, address toAddr, uint amount);
 
     modifier onlyActivatedChains(uint8 chainID){
         require(registeredChains[chainID].active == true, "Only activated chains");
@@ -782,11 +782,13 @@ contract BscVault is Ownable, Pausable {
     }
 
     function addNewChain(uint8 chainID, address minter, address token) public onlyOwner returns(bool){
+        require(minter != address (0), "Minter address must not be 0x0");
         require(registeredChains[chainID].minter == address(0), 'ChainID has already been registered');
         MinterEntity memory minterEntity = MinterEntity({
             minter: minter,
             token: token,
-            active: true
+            active: true,
+            depositCount: 0
         });
         registeredChains[chainID] = minterEntity;
         return true;
@@ -798,8 +800,8 @@ contract BscVault is Ownable, Pausable {
     }
 
     function swapStart(
-        uint8 toChainID, 
-        address to, 
+        uint8 toChainID,
+        address to,
         uint amount
         ) public onlyActivatedChains(toChainID) whenNotPaused notContract{
         require(amount >= MIN_AMOUNT && to != address(0));
@@ -811,45 +813,45 @@ contract BscVault is Ownable, Pausable {
             amount = amount.sub(commission);
             _withdrawCommission(commission);
         }
+        registeredChains[toChainID].depositCount += 1;
+        uint _depositCount = registeredChains[toChainID].depositCount;
+        uint8 _chainID = getChainID();
         EventStr memory eventStr = EventStr({
-            blockNumber: block.number,
-            chainID: getChainID(),
+            depositCount: _depositCount,
+            chainID: _chainID,
             from: msg.sender,
             to: to,
             amount: amount,
-            isComplited: false
+            isCompleted: false
         });
-        bytes32 eventHash = keccak256(abi.encode(block.number, getChainID(), msg.sender, to, amount));
-        require(eventStore[eventHash].blockNumber == 0, "It's available just 1 swap in current block with same: chainID, from, to, amount");
+        bytes32 eventHash = keccak256(abi.encode(_depositCount, _chainID, msg.sender, to, amount));
+        require(eventStore[eventHash].depositCount == 0,
+            "It's available just 1 swap with same: chainID, depositCount from, to, amount");
         eventStore[eventHash] = eventStr;
-        totalSend = totalSend.add(amount);
-        emit SwapStart(eventHash, block.number, toChainID, msg.sender, to, amount);
+        emit SwapStart(eventHash, _depositCount, toChainID, msg.sender, to, amount);
     }
 
-    function _depositToken(uint amount) private {
-        IERC20(rootToken).safeTransferFrom(msg.sender, address(this), amount);
-    }
 
     function swapEnd(
-        uint8 fromChainID, 
-        bytes32 eventHash, 
-        uint blockNumber, 
-        address from, 
-        address to, 
+        bytes32 eventHash,
+        uint depositCount,
+        uint8 fromChainID,
+        address from,
+        address to,
         uint amount
-        ) public onlyOwner onlyActivatedChains(fromChainID) whenNotPaused{
+        ) public onlyOwner onlyActivatedChains(fromChainID) whenNotPaused {
         require(amount > 0 && to != address(0));
-        require(fromChainID != getChainID(), "Swap work between different chains");
-        bytes32 receivedHash = keccak256(abi.encode(blockNumber, fromChainID, from, to, amount));
+        require(fromChainID != getChainID(), "Swap only work between different chains");
+        bytes32 receivedHash = keccak256(abi.encode(depositCount, fromChainID, from, to, amount));
         require(receivedHash == eventHash, "Wrong args received");
         require(eventStore[receivedHash].isCompleted == false, "Swap was ended before!");
         EventStr memory eventStr = EventStr({
-            blockNumber: blockNumber,
+            depositCount: depositCount,
             chainID: fromChainID,
             from: from,
             to: to,
             amount: amount,
-            isComplited: true
+            isCompleted: true
         });
         eventStore[receivedHash] = eventStr;
 
@@ -859,21 +861,27 @@ contract BscVault is Ownable, Pausable {
             _withdrawCommission(commission);
         }
         _transferToken(to, amount);
-        totalReceived = totalReceived.add(amount);
-        emit SwapEnd(receivedHash, fromChainID, from, to, amount);
+        emit SwapEnd(receivedHash, depositCount, fromChainID, from, to, amount);
     }
 
     function setSwapComplete(bytes32 eventHash) public onlyOwner{
-        require(eventStore[eventHash].blockNumber != 0, "Event hash not finded");
+        require(eventStore[eventHash].depositCount != 0, "Event hash not found");
+        require(eventStore[eventHash].chainID == getChainID(),
+            "swap from another chain can be completed from swapEnd()");
         eventStore[eventHash].isCompleted = true;
         address fromAddr = eventStore[eventHash].from;
         address toAddr = eventStore[eventHash].to;
         uint amount = eventStore[eventHash].amount;
-        emit SwapCompleted(eventHash, fromAddr, toAddr, amount);
+        uint depositCount = eventStore[eventHash].depositCount;
+        emit SwapCompleted(eventHash, depositCount, fromAddr, toAddr, amount);
     }
 
     function _transferToken(address to, uint amount) private {
         IERC20(rootToken).safeTransfer(to, amount);
+    }
+
+    function _depositToken(uint amount) private {
+        IERC20(rootToken).safeTransferFrom(msg.sender, address(this), amount);
     }
 
     function _commissionCalculate(uint amount) internal view returns(uint fee){
@@ -881,7 +889,7 @@ contract BscVault is Ownable, Pausable {
     }
 
     function _withdrawCommission(uint commission) internal{
-        if(commission > 0){
+        if(commission > 0 && commissionReceiver != address (0)){
             _transferToken(commissionReceiver, commission);
         }
     }
