@@ -1,6 +1,6 @@
 const { expect } = require("chai");
 const { BigNumber } = require("ethers");
-// const { ethers } = require("ethers");
+const { ethers } = require("hardhat");
 
 let bswToken, bscVault, maticBSWToken, maticMinter, accounts;
 before(async function() {
@@ -15,7 +15,7 @@ before(async function() {
     maticBSWToken = await MaticBSWToken.deploy();
     await maticBSWToken.deployed();
 
-    MaticMinter = await ethers.getContractFactory("MaticMinter");
+    let MaticMinter = await ethers.getContractFactory("MaticMinter");
     maticMinter = await MaticMinter.deploy(maticBSWToken.address);
 
     accounts = await ethers.getSigners() //await greeter.connect(addr1).setGreeting("Hallo, Erde!");
@@ -28,16 +28,15 @@ describe("BscVault", function() {
     });
 
     it("check owner balance of tokens", async function(){
-        tokenBalance = await bswToken.balanceOf(accounts[0].address);
+        let tokenBalance = await bswToken.balanceOf(accounts[0].address);
         expect(tokenBalance).to.equal(BigNumber.from("10000000000000000000000000"));
     });
 
     it("Add target chain to BSCVault", async function(){
-        result = await bscVault.addNewChain(1, maticMinter.address, maticBSWToken.address);
-        result = await result.wait();
-        console.log(result);
-        // expect(result, "Chain add successfully").true;
-        // expect(await bscVault.registeredChains[1].minter).to.equal(maticMinter.address);
+        let tx = await bscVault.addNewChain(1, maticMinter.address, maticBSWToken.address);
+        await tx.wait();
+        let res = await bscVault.registeredChains("1");
+        expect(res.minter).equal(maticMinter.address, "New chain added successfully");
     })
 
     it("Swap start from BSC", function(){

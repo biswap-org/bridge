@@ -509,7 +509,7 @@ library Address {
         return _verifyCallResult(success, returndata, errorMessage);
     }
 
-    function _verifyCallResult(
+    //noinspection NoReturn function _verifyCallResult(
         bool success,
         bytes memory returndata,
         string memory errorMessage
