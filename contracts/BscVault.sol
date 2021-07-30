@@ -509,7 +509,7 @@ library Address {
         return _verifyCallResult(success, returndata, errorMessage);
     }
 
-    //noinspection NoReturn function _verifyCallResult(
+    function _verifyCallResult(
         bool success,
         bytes memory returndata,
         string memory errorMessage
@@ -733,7 +733,7 @@ contract BscVault is Ownable, Pausable {
         address from;
         address to;
         uint amount;
-        bool isComplited;
+        bool isCompleted;
     }
 
     mapping (uint8 => MinterEntity) public registeredChains; // chainID => MinterEntity
@@ -756,7 +756,7 @@ contract BscVault is Ownable, Pausable {
         );
     
     //emit when started swap from current chain was ended in target chain
-    event SwapComplited(bytes32 indexed eventHash, address fromAddr, address toAddr, uint amount);
+    event SwapCompleted(bytes32 indexed eventHash, address fromAddr, address toAddr, uint amount);
 
     modifier onlyActivatedChains(uint8 chainID){
         require(registeredChains[chainID].active == true, "Only activated chains");
@@ -820,7 +820,7 @@ contract BscVault is Ownable, Pausable {
             isComplited: false
         });
         bytes32 eventHash = keccak256(abi.encode(block.number, getChainID(), msg.sender, to, amount));
-        require(eventStore[eventHash].blockNumber == 0, "It's avaliable just 1 swap in current block with same: chainID, from, to, amount");
+        require(eventStore[eventHash].blockNumber == 0, "It's available just 1 swap in current block with same: chainID, from, to, amount");
         eventStore[eventHash] = eventStr;
         totalSend = totalSend.add(amount);
         emit SwapStart(eventHash, block.number, toChainID, msg.sender, to, amount);
@@ -840,9 +840,9 @@ contract BscVault is Ownable, Pausable {
         ) public onlyOwner onlyActivatedChains(fromChainID) whenNotPaused{
         require(amount > 0 && to != address(0));
         require(fromChainID != getChainID(), "Swap work between different chains");
-        bytes32 reseivedHash = keccak256(abi.encode(blockNumber, fromChainID, from, to, amount));
-        require(reseivedHash == eventHash, "Wrong args received");
-        require(eventStore[reseivedHash].isComplited == false, "Swap was ended before!");
+        bytes32 receivedHash = keccak256(abi.encode(blockNumber, fromChainID, from, to, amount));
+        require(receivedHash == eventHash, "Wrong args received");
+        require(eventStore[receivedHash].isCompleted == false, "Swap was ended before!");
         EventStr memory eventStr = EventStr({
             blockNumber: blockNumber,
             chainID: fromChainID,
@@ -851,7 +851,7 @@ contract BscVault is Ownable, Pausable {
             amount: amount,
             isComplited: true
         });
-        eventStore[reseivedHash] = eventStr;
+        eventStore[receivedHash] = eventStr;
 
         if(swapCommission > 0){
             uint commission = _commissionCalculate(amount);
@@ -860,16 +860,16 @@ contract BscVault is Ownable, Pausable {
         }
         _transferToken(to, amount);
         totalReceived = totalReceived.add(amount);
-        emit SwapEnd(reseivedHash, fromChainID, from, to, amount);
+        emit SwapEnd(receivedHash, fromChainID, from, to, amount);
     }
 
-    function setSwapComplite(bytes32 eventHash) public onlyOwner{
+    function setSwapComplete(bytes32 eventHash) public onlyOwner{
         require(eventStore[eventHash].blockNumber != 0, "Event hash not finded");
-        eventStore[eventHash].isComplited = true;
+        eventStore[eventHash].isCompleted = true;
         address fromAddr = eventStore[eventHash].from;
         address toAddr = eventStore[eventHash].to;
         uint amount = eventStore[eventHash].amount;
-        emit SwapComplited(eventHash, fromAddr, toAddr, amount);
+        emit SwapCompleted(eventHash, fromAddr, toAddr, amount);
     }
 
     function _transferToken(address to, uint amount) private {

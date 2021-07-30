@@ -676,7 +676,7 @@ contract MaticMinter is Ownable, Pausable{
         address from;
         address to;
         uint amount;
-        bool isComplited;
+        bool isCompleted;
     }
 
     mapping (bytes32 => EventStr) public eventStore;
@@ -697,7 +697,7 @@ contract MaticMinter is Ownable, Pausable{
         );
     
     //emit when started swap was ended in target chain
-    event SwapComplited(bytes32 indexed eventHash, address fromAddr, address toAddr, uint amount);
+    event SwapCompleted(bytes32 indexed eventHash, address fromAddr, address toAddr, uint amount);
 
     constructor(address _tokenAddress) public{
         tokenAddress = _tokenAddress;
@@ -739,7 +739,7 @@ contract MaticMinter is Ownable, Pausable{
         require(fromChainID != getChainID(), "Swap work between different chains");
         bytes32 reseivedHash = keccak256(abi.encode(blockNumber, fromChainID, from, to, amount));
         require(reseivedHash == eventHash, "Wrong args received");
-        require(eventStore[reseivedHash].isComplited == false, "Swap was ended before!");
+        require(eventStore[reseivedHash].isCompleted == false, "Swap was ended before!");
         EventStr memory eventStr = EventStr({
             blockNumber: blockNumber,
             chainID: fromChainID,
@@ -754,13 +754,13 @@ contract MaticMinter is Ownable, Pausable{
         emit SwapEnd(reseivedHash, fromChainID, from, to, amount);
     }
 
-    function setSwapComplite(bytes32 eventHash) public onlyOwner {
+    function setSwapComplete(bytes32 eventHash) public onlyOwner {
         require(eventStore[eventHash].blockNumber != 0, "Event hash not finded");
-        eventStore[eventHash].isComplited = true;
+        eventStore[eventHash].isCompleted = true;
         address fromAddr = eventStore[eventHash].from;
         address toAddr = eventStore[eventHash].to;
         uint amount = eventStore[eventHash].amount;
-        emit SwapComplited(eventHash, fromAddr, toAddr, amount);
+        emit SwapCompleted(eventHash, fromAddr, toAddr, amount);
     }
 
     function getChainID() internal pure returns (uint8) {
