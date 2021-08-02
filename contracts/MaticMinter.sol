@@ -716,7 +716,7 @@ contract MaticMinter is Ownable, Pausable{
     }
 
     function swapStart(address to, uint amount) public whenNotPaused notContract{
-        require(amount >= MIN_AMOUNT && to != address(0));
+        require(amount >= MIN_AMOUNT && to != address(0), "Wrong amount or address to");
         require(IERC20(tokenAddress).balanceOf(msg.sender) >= amount, "Not enough balance");
         IERC20(tokenAddress).safeBurn(msg.sender, amount);
         depositCount += 1;
