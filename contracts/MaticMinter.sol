@@ -719,7 +719,7 @@ contract MaticMinter is Ownable, Pausable{
         require(amount >= MIN_AMOUNT && to != address(0));
         require(IERC20(tokenAddress).balanceOf(msg.sender) >= amount, "Not enough balance");
         IERC20(tokenAddress).safeBurn(msg.sender, amount);
-        depositCount +=1;
+        depositCount += 1;
         uint _depositCount = depositCount;
         uint _chainID = getChainID();
         EventStr memory eventStr = EventStr({

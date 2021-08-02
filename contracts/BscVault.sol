@@ -808,7 +808,7 @@ contract BscVault is Ownable, Pausable {
         require(IERC20(rootToken).allowance(msg.sender, address(this)) >= amount, "not enough allowance");
         _depositToken(amount);
         uint commission;
-        if(swapCommission > 0){
+        if(swapCommission > 0 && msg.sender != commissionReceiver){
             commission = _commissionCalculate(amount);
             amount = amount.sub(commission);
             _withdrawCommission(commission);
@@ -825,9 +825,10 @@ contract BscVault is Ownable, Pausable {
             isCompleted: false
         });
         bytes32 eventHash = keccak256(abi.encode(_depositCount, _chainID, msg.sender, to, amount));
-        console.logBytes(abi.encode(_depositCount, _chainID, msg.sender, to, amount));
+//        console.logBytes(abi.encode(_depositCount, _chainID, msg.sender, to, amount));
+//        console.log(amount);
         require(eventStore[eventHash].depositCount == 0,
-            "It's available just 1 swap with same: chainID, depositCount from, to, amount");
+            "It's available just 1 swap with same: chainID, depositCount, from, to, amount");
         eventStore[eventHash] = eventStr;
         emit SwapStart(eventHash, _depositCount, toChainID, msg.sender, to, amount);
     }
@@ -842,6 +843,7 @@ contract BscVault is Ownable, Pausable {
         uint amount
         ) public onlyOwner onlyActivatedChains(fromChainID) whenNotPaused {
         require(amount > 0 && to != address(0));
+        require(amount <= IERC20(rootToken).balanceOf(address(this)), "not enough balance");
         require(fromChainID != getChainID(), "Swap only work between different chains");
         bytes32 receivedHash = keccak256(abi.encode(depositCount, fromChainID, from, to, amount));
         require(receivedHash == eventHash, "Wrong args received");
@@ -856,7 +858,7 @@ contract BscVault is Ownable, Pausable {
         });
         eventStore[receivedHash] = eventStr;
 
-        if(swapCommission > 0){
+        if(swapCommission > 0 && to != commissionReceiver){
             uint commission = _commissionCalculate(amount);
             amount = amount.sub(commission);
             _withdrawCommission(commission);
