@@ -833,7 +833,6 @@ contract BscVault is Ownable, Pausable {
         emit SwapStart(eventHash, _depositCount, toChainID, msg.sender, to, amount);
     }
 
-
     function swapEnd(
         bytes32 eventHash,
         uint depositCount,

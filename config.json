@@ -1,0 +1,14 @@
+{
+    "ContractAddresses":{
+        "TestNet": {
+            "BSC": {
+                "BSWToken":"0x191354497d7fA8c82867c2F012262c8E3786A995",
+                "BSCVaultContract": "0xa765ff174F74A4091A2c75dF5B454C0AC59dB851"
+            },
+            "MATIC": {
+                "MaticMinterContract": "0x5146437bEf2617Edbc33BE1c05521AAB633dDdbd",
+                "MaticBSWTokenContract": "0x03dBec199cf24d5332D983e978adcd83203695F1"
+            }
+        }
+    }
+}

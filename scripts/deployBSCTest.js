@@ -1,14 +1,24 @@
-// npx hardhat run scripts/deployBSCTest.js --network testnet
-
-const hre = require("hardhat");
+// npx hardhat run scripts/deployBSCTest.js --network testnetBSC
+// const config = require(`../config.json`);
+const { ethers, network } = require(`hardhat`);
 
 async function main() {
-  const BscVault = await hre.ethers.getContractFactory("BscVault");
-  const bscVault = await BscVault.deploy();
+    let accounts = await ethers.getSigners();
+    console.log(`Deployer address: ${ accounts[0].address}`,
+        `\nStart deploying BSW Token contract on ${ network.name }`);
 
-  await greeter.deployed();
+    const BSWToken = await ethers.getContractFactory(`BSWToken`);
+    const bswToken = await BSWToken.deploy();
+    await bswToken.deployed();
+    await bswToken.deployTransaction.wait();
+    console.log(`Bsw Token contract deployed to:`, bswToken.address);
 
-  console.log("Greeter deployed to:", greeter.address);
+    console.log(`Start deploying BSCVault contract on ${ network.name }`);
+    const BscVault = await ethers.getContractFactory(`BscVault`);
+    const bscVault = await BscVault.deploy(bswToken.address);
+
+    await bscVault.deployed();
+    console.log(`bscVault contract deployed to:`, bscVault.address);
 }
 
 main()
