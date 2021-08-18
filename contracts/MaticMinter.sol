@@ -1,5 +1,64 @@
 pragma solidity 0.6.6;
 
+/**
+ * @dev Contract module that helps prevent reentrant calls to a function.
+ *
+ * Inheriting from `ReentrancyGuard` will make the {nonReentrant} modifier
+ * available, which can be applied to functions to make sure there are no nested
+ * (reentrant) calls to them.
+ *
+ * Note that because there is a single `nonReentrant` guard, functions marked as
+ * `nonReentrant` may not call one another. This can be worked around by making
+ * those functions `private`, and then adding `external` `nonReentrant` entry
+ * points to them.
+ *
+ * TIP: If you would like to learn more about reentrancy and alternative ways
+ * to protect against it, check out our blog post
+ * https://blog.openzeppelin.com/reentrancy-after-istanbul/[Reentrancy After Istanbul].
+ */
+abstract contract ReentrancyGuard {
+    // Booleans are more expensive than uint256 or any type that takes up a full
+    // word because each write operation emits an extra SLOAD to first read the
+    // slot's contents, replace the bits taken up by the boolean, and then write
+    // back. This is the compiler's defense against contract upgrades and
+    // pointer aliasing, and it cannot be disabled.
+
+    // The values being non-zero value makes deployment a bit more expensive,
+    // but in exchange the refund on every call to nonReentrant will be lower in
+    // amount. Since refunds are capped to a percentage of the total
+    // transaction's gas, it is best to keep them low in cases like this one, to
+    // increase the likelihood of the full refund coming into effect.
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+
+    uint256 private _status;
+
+    constructor() public {
+        _status = _NOT_ENTERED;
+    }
+
+    /**
+     * @dev Prevents a contract from calling itself, directly or indirectly.
+     * Calling a `nonReentrant` function from another `nonReentrant`
+     * function is not supported. It is possible to prevent this from happening
+     * by making the `nonReentrant` function external, and make it call a
+     * `private` function that does the actual work.
+     */
+    modifier nonReentrant() {
+        // On the first call to nonReentrant, _notEntered will be true
+        require(_status != _ENTERED, "ReentrancyGuard: reentrant call");
+
+        // Any calls to nonReentrant after this point will fail
+        _status = _ENTERED;
+
+        _;
+
+        // By storing the original value once again, a refund is triggered (see
+        // https://eips.ethereum.org/EIPS/eip-2200)
+        _status = _NOT_ENTERED;
+    }
+}
+
 /*
  * @dev Provides information about the current execution context, including the
  * sender of the transaction and its data. While these are generally available
@@ -663,7 +722,7 @@ abstract contract Pausable is Context {
     }
 }
 
-contract MaticMinter is Ownable, Pausable{
+contract MaticMinter is Ownable, Pausable, ReentrancyGuard{
     using SafeERC20 for IERC20;
     using SafeMath for uint;
 
@@ -715,13 +774,13 @@ contract MaticMinter is Ownable, Pausable{
         _;
     }
 
-    function swapStart(address to, uint amount) public whenNotPaused notContract{
+    function swapStart(address to, uint amount) public whenNotPaused notContract nonReentrant {
         require(amount >= MIN_AMOUNT && to != address(0), "Wrong amount or address to");
         require(IERC20(tokenAddress).balanceOf(msg.sender) >= amount, "Not enough balance");
         IERC20(tokenAddress).safeBurn(msg.sender, amount);
-        depositCount += 1;
+        depositCount = depositCount.add(1);
         uint _depositCount = depositCount;
-        uint _chainID = getChainID();
+        uint _chainID = _getChainID();
         EventStr memory eventStr = EventStr({
             depositCount: _depositCount,
             chainID: _chainID,
@@ -730,7 +789,7 @@ contract MaticMinter is Ownable, Pausable{
             amount: amount,
             isCompleted: false
         });
-        bytes32 eventHash = keccak256(abi.encode(_depositCount, _chainID, msg.sender, to, amount));
+        bytes32 eventHash = keccak256(abi.encode(_depositCount, _chainID, vaultChainID, msg.sender, to, amount));
         require(eventStore[eventHash].depositCount == 0,
             "It's available just 1 swap with same: depositCount from, to, amount");
         eventStore[eventHash] = eventStr;
@@ -746,8 +805,9 @@ contract MaticMinter is Ownable, Pausable{
         uint amount
         ) public onlyOwner whenNotPaused {
         require(amount > 0 && to != address(0));
-        require(fromChainID != getChainID(), "Swap only work between different chains");
-        bytes32 receivedHash = keccak256(abi.encode(_depositCount, fromChainID, from, to, amount));
+        uint _chainID = _getChainID();
+        require(fromChainID != _chainID, "Swap only work between different chains");
+        bytes32 receivedHash = keccak256(abi.encode(_depositCount, fromChainID, _chainID, from, to, amount));
         require(receivedHash == eventHash, "Wrong args received");
         require(eventStore[receivedHash].isCompleted == false, "Swap was ended before!");
         EventStr memory eventStr = EventStr({
@@ -764,9 +824,9 @@ contract MaticMinter is Ownable, Pausable{
         emit SwapEnd(receivedHash, _depositCount, fromChainID, from, to, amount);
     }
 
-    function setSwapComplete(bytes32 eventHash) public onlyOwner {
+    function setSwapComplete(bytes32 eventHash) external onlyOwner {
         require(eventStore[eventHash].depositCount != 0, "Event hash not found");
-        require(eventStore[eventHash].chainID == getChainID(),
+        require(eventStore[eventHash].chainID == _getChainID(),
             "swap from another chain can be completed from swapEnd()");
         eventStore[eventHash].isCompleted = true;
         address fromAddr = eventStore[eventHash].from;
@@ -776,7 +836,17 @@ contract MaticMinter is Ownable, Pausable{
         emit SwapCompleted(eventHash, _depositCount,  fromAddr, toAddr, amount);
     }
 
-    function getChainID() internal pure returns (uint) {
+    function pause() external onlyOwner whenNotPaused {
+        _pause();
+        emit Paused(msg.sender);
+    }
+
+    function unpause() external onlyOwner whenPaused {
+        _unpause();
+        emit Unpaused(msg.sender);
+    }
+
+    function _getChainID() internal pure returns (uint) {
         uint id;
         assembly {
             id := chainid()
@@ -785,6 +855,8 @@ contract MaticMinter is Ownable, Pausable{
     }
 
     function setTokenAddressAndVaultChainID(address _tokenAddress, uint _vaultChainID) public onlyOwner {
+        require(_tokenAddress != address(0), "Token address can not be zero address!");
+        require(_vaultChainID != _getChainID(), "Vault chain ID can not be current chain Id!");
         tokenAddress = _tokenAddress;
         vaultChainID = _vaultChainID;
     }

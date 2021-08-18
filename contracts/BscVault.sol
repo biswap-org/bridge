@@ -1,5 +1,64 @@
 pragma solidity 0.6.6;
 
+/**
+ * @dev Contract module that helps prevent reentrant calls to a function.
+ *
+ * Inheriting from `ReentrancyGuard` will make the {nonReentrant} modifier
+ * available, which can be applied to functions to make sure there are no nested
+ * (reentrant) calls to them.
+ *
+ * Note that because there is a single `nonReentrant` guard, functions marked as
+ * `nonReentrant` may not call one another. This can be worked around by making
+ * those functions `private`, and then adding `external` `nonReentrant` entry
+ * points to them.
+ *
+ * TIP: If you would like to learn more about reentrancy and alternative ways
+ * to protect against it, check out our blog post
+ * https://blog.openzeppelin.com/reentrancy-after-istanbul/[Reentrancy After Istanbul].
+ */
+abstract contract ReentrancyGuard {
+    // Booleans are more expensive than uint256 or any type that takes up a full
+    // word because each write operation emits an extra SLOAD to first read the
+    // slot's contents, replace the bits taken up by the boolean, and then write
+    // back. This is the compiler's defense against contract upgrades and
+    // pointer aliasing, and it cannot be disabled.
+
+    // The values being non-zero value makes deployment a bit more expensive,
+    // but in exchange the refund on every call to nonReentrant will be lower in
+    // amount. Since refunds are capped to a percentage of the total
+    // transaction's gas, it is best to keep them low in cases like this one, to
+    // increase the likelihood of the full refund coming into effect.
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+
+    uint256 private _status;
+
+    constructor() public {
+        _status = _NOT_ENTERED;
+    }
+
+    /**
+     * @dev Prevents a contract from calling itself, directly or indirectly.
+     * Calling a `nonReentrant` function from another `nonReentrant`
+     * function is not supported. It is possible to prevent this from happening
+     * by making the `nonReentrant` function external, and make it call a
+     * `private` function that does the actual work.
+     */
+    modifier nonReentrant() {
+        // On the first call to nonReentrant, _notEntered will be true
+        require(_status != _ENTERED, "ReentrancyGuard: reentrant call");
+
+        // Any calls to nonReentrant after this point will fail
+        _status = _ENTERED;
+
+        _;
+
+        // By storing the original value once again, a refund is triggered (see
+        // https://eips.ethereum.org/EIPS/eip-2200)
+        _status = _NOT_ENTERED;
+    }
+}
+
 /*
  * @dev Provides information about the current execution context, including the
  * sender of the transaction and its data. While these are generally available
@@ -709,8 +768,7 @@ abstract contract Pausable is Context {
         emit Unpaused(_msgSender());
     }
 }
-//import "hardhat/console.sol";
-contract BscVault is Ownable, Pausable {
+contract BscVault is Ownable, Pausable, ReentrancyGuard {
     using SafeMath for uint;
     using SafeERC20 for IERC20;
 
@@ -759,6 +817,7 @@ contract BscVault is Ownable, Pausable {
     event SwapCompleted(bytes32 indexed eventHash, uint depositCount, address fromAddr, address toAddr, uint amount);
 
     modifier onlyActivatedChains(uint chainID){
+        require(chainID != _getChainID(), "Swap must be created to different chain ID");
         require(registeredChains[chainID].active == true, "Only activated chains");
         _;
     }
@@ -782,6 +841,7 @@ contract BscVault is Ownable, Pausable {
     }
 
     function addNewChain(uint chainID, address minter, address token) public onlyOwner returns(bool){
+        require(chainID != _getChainID(), "Can`t add current chain ID");
         require(minter != address (0), "Minter address must not be 0x0");
         require(registeredChains[chainID].minter == address(0), 'ChainID has already been registered');
         MinterEntity memory minterEntity = MinterEntity({
@@ -794,7 +854,8 @@ contract BscVault is Ownable, Pausable {
         return true;
     }
 
-    function changeActivationChain(uint chainID, bool activate) public onlyOwner{
+    function changeActivationChain(uint chainID, bool activate) public onlyOwner {
+        require(chainID != _getChainID(), "Can`t change activation to current Chain ID");
         require(registeredChains[chainID].minter != address(0), 'Chain is not registered');
         registeredChains[chainID].active = activate;
     }
@@ -803,7 +864,7 @@ contract BscVault is Ownable, Pausable {
         uint toChainID,
         address to,
         uint amount
-        ) public onlyActivatedChains(toChainID) whenNotPaused notContract{
+        ) public onlyActivatedChains(toChainID) whenNotPaused notContract nonReentrant {
         require(amount >= MIN_AMOUNT && to != address(0));
         require(IERC20(rootToken).allowance(msg.sender, address(this)) >= amount, "not enough allowance");
         _depositToken(amount);
@@ -813,9 +874,9 @@ contract BscVault is Ownable, Pausable {
             amount = amount.sub(commission);
             _withdrawCommission(commission);
         }
-        registeredChains[toChainID].depositCount += 1;
+        registeredChains[toChainID].depositCount = registeredChains[toChainID].depositCount.add(1);
         uint _depositCount = registeredChains[toChainID].depositCount;
-        uint _chainID = getChainID();
+        uint _chainID = _getChainID();
         EventStr memory eventStr = EventStr({
             depositCount: _depositCount,
             chainID: _chainID,
@@ -824,9 +885,7 @@ contract BscVault is Ownable, Pausable {
             amount: amount,
             isCompleted: false
         });
-        bytes32 eventHash = keccak256(abi.encode(_depositCount, _chainID, msg.sender, to, amount));
-//        console.logBytes(abi.encode(_depositCount, _chainID, msg.sender, to, amount));
-//        console.log(amount);
+        bytes32 eventHash = keccak256(abi.encode(_depositCount, _chainID, toChainID, msg.sender, to, amount));
         require(eventStore[eventHash].depositCount == 0,
             "It's available just 1 swap with same: chainID, depositCount, from, to, amount");
         eventStore[eventHash] = eventStr;
@@ -843,8 +902,9 @@ contract BscVault is Ownable, Pausable {
         ) public onlyOwner onlyActivatedChains(fromChainID) whenNotPaused {
         require(amount > 0 && to != address(0));
         require(amount <= IERC20(rootToken).balanceOf(address(this)), "not enough balance");
-        require(fromChainID != getChainID(), "Swap only work between different chains");
-        bytes32 receivedHash = keccak256(abi.encode(depositCount, fromChainID, from, to, amount));
+        require(fromChainID != _getChainID(), "Swap only work between different chains");
+        uint _chainID = _getChainID();
+        bytes32 receivedHash = keccak256(abi.encode(depositCount, fromChainID, _chainID, from, to, amount));
         require(receivedHash == eventHash, "Wrong args received");
         require(eventStore[receivedHash].isCompleted == false, "Swap was ended before!");
         EventStr memory eventStr = EventStr({
@@ -866,9 +926,9 @@ contract BscVault is Ownable, Pausable {
         emit SwapEnd(receivedHash, depositCount, fromChainID, from, to, amount);
     }
 
-    function setSwapComplete(bytes32 eventHash) public onlyOwner{
+    function setSwapComplete(bytes32 eventHash) external onlyOwner{
         require(eventStore[eventHash].depositCount != 0, "Event hash not found");
-        require(eventStore[eventHash].chainID == getChainID(),
+        require(eventStore[eventHash].chainID == _getChainID(),
             "swap from another chain can be completed from swapEnd()");
         eventStore[eventHash].isCompleted = true;
         address fromAddr = eventStore[eventHash].from;
@@ -876,6 +936,16 @@ contract BscVault is Ownable, Pausable {
         uint amount = eventStore[eventHash].amount;
         uint depositCount = eventStore[eventHash].depositCount;
         emit SwapCompleted(eventHash, depositCount, fromAddr, toAddr, amount);
+    }
+
+    function pause() external onlyOwner whenNotPaused {
+        _pause();
+        emit Paused(msg.sender);
+    }
+
+    function unpause() external onlyOwner whenPaused {
+        _unpause();
+        emit Unpaused(msg.sender);
     }
 
     function _transferToken(address to, uint amount) private {
@@ -896,7 +966,7 @@ contract BscVault is Ownable, Pausable {
         }
     }
     
-    function getChainID() internal pure returns (uint) {
+    function _getChainID() internal pure returns (uint) {
         uint id;
         assembly {
             id := chainid()
