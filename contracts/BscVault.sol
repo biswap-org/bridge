@@ -817,6 +817,7 @@ contract BscVault is Ownable, Pausable, ReentrancyGuard {
     event SwapCompleted(bytes32 indexed eventHash, uint depositCount, address fromAddr, address toAddr, uint amount);
 
     modifier onlyActivatedChains(uint chainID){
+        //BVG09 fixed
         require(chainID != _getChainID(), "Swap must be created to different chain ID");
         require(registeredChains[chainID].active == true, "Only activated chains");
         _;
@@ -841,6 +842,7 @@ contract BscVault is Ownable, Pausable, ReentrancyGuard {
     }
 
     function addNewChain(uint chainID, address minter, address token) public onlyOwner returns(bool){
+        //BVG11 fixed
         require(chainID != _getChainID(), "Can`t add current chain ID");
         require(minter != address (0), "Minter address must not be 0x0");
         require(registeredChains[chainID].minter == address(0), 'ChainID has already been registered');
@@ -859,7 +861,7 @@ contract BscVault is Ownable, Pausable, ReentrancyGuard {
         require(registeredChains[chainID].minter != address(0), 'Chain is not registered');
         registeredChains[chainID].active = activate;
     }
-
+    //BVG08 fixed
     function swapStart(
         uint toChainID,
         address to,
@@ -874,6 +876,7 @@ contract BscVault is Ownable, Pausable, ReentrancyGuard {
             amount = amount.sub(commission);
             _withdrawCommission(commission);
         }
+        //BVG02 fixed
         registeredChains[toChainID].depositCount = registeredChains[toChainID].depositCount.add(1);
         uint _depositCount = registeredChains[toChainID].depositCount;
         uint _chainID = _getChainID();
@@ -885,13 +888,14 @@ contract BscVault is Ownable, Pausable, ReentrancyGuard {
             amount: amount,
             isCompleted: false
         });
+        //BVG07 fixed
         bytes32 eventHash = keccak256(abi.encode(_depositCount, _chainID, toChainID, msg.sender, to, amount));
         require(eventStore[eventHash].depositCount == 0,
             "It's available just 1 swap with same: chainID, depositCount, from, to, amount");
         eventStore[eventHash] = eventStr;
         emit SwapStart(eventHash, _depositCount, toChainID, msg.sender, to, amount);
     }
-
+    //BVG10 fixed
     function swapEnd(
         bytes32 eventHash,
         uint depositCount,
@@ -904,6 +908,7 @@ contract BscVault is Ownable, Pausable, ReentrancyGuard {
         require(amount <= IERC20(rootToken).balanceOf(address(this)), "not enough balance");
         require(fromChainID != _getChainID(), "Swap only work between different chains");
         uint _chainID = _getChainID();
+        //BVG07 fixed
         bytes32 receivedHash = keccak256(abi.encode(depositCount, fromChainID, _chainID, from, to, amount));
         require(receivedHash == eventHash, "Wrong args received");
         require(eventStore[receivedHash].isCompleted == false, "Swap was ended before!");
@@ -938,6 +943,7 @@ contract BscVault is Ownable, Pausable, ReentrancyGuard {
         emit SwapCompleted(eventHash, depositCount, fromAddr, toAddr, amount);
     }
 
+    //BVG04 fixed
     function pause() external onlyOwner whenNotPaused {
         _pause();
         emit Paused(msg.sender);
@@ -965,7 +971,8 @@ contract BscVault is Ownable, Pausable, ReentrancyGuard {
             _transferToken(commissionReceiver, commission);
         }
     }
-    
+
+    //BVG03 fixed
     function _getChainID() internal pure returns (uint) {
         uint id;
         assembly {

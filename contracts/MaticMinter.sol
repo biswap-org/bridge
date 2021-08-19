@@ -778,6 +778,7 @@ contract MaticMinter is Ownable, Pausable, ReentrancyGuard{
         require(amount >= MIN_AMOUNT && to != address(0), "Wrong amount or address to");
         require(IERC20(tokenAddress).balanceOf(msg.sender) >= amount, "Not enough balance");
         IERC20(tokenAddress).safeBurn(msg.sender, amount);
+        //MMG04 fixed
         depositCount = depositCount.add(1);
         uint _depositCount = depositCount;
         uint _chainID = _getChainID();
@@ -789,6 +790,7 @@ contract MaticMinter is Ownable, Pausable, ReentrancyGuard{
             amount: amount,
             isCompleted: false
         });
+        //MMG06 fixed
         bytes32 eventHash = keccak256(abi.encode(_depositCount, _chainID, vaultChainID, msg.sender, to, amount));
         require(eventStore[eventHash].depositCount == 0,
             "It's available just 1 swap with same: depositCount from, to, amount");
@@ -807,6 +809,7 @@ contract MaticMinter is Ownable, Pausable, ReentrancyGuard{
         require(amount > 0 && to != address(0));
         uint _chainID = _getChainID();
         require(fromChainID != _chainID, "Swap only work between different chains");
+        //MMG06 fixed
         bytes32 receivedHash = keccak256(abi.encode(_depositCount, fromChainID, _chainID, from, to, amount));
         require(receivedHash == eventHash, "Wrong args received");
         require(eventStore[receivedHash].isCompleted == false, "Swap was ended before!");
@@ -835,17 +838,18 @@ contract MaticMinter is Ownable, Pausable, ReentrancyGuard{
         uint _depositCount = eventStore[eventHash].depositCount;
         emit SwapCompleted(eventHash, _depositCount,  fromAddr, toAddr, amount);
     }
-
+    //MMG02 fixed
     function pause() external onlyOwner whenNotPaused {
         _pause();
         emit Paused(msg.sender);
     }
 
+    //MMG02 fixed
     function unpause() external onlyOwner whenPaused {
         _unpause();
         emit Unpaused(msg.sender);
     }
-
+    //MMG03 fixed
     function _getChainID() internal pure returns (uint) {
         uint id;
         assembly {
@@ -855,7 +859,9 @@ contract MaticMinter is Ownable, Pausable, ReentrancyGuard{
     }
 
     function setTokenAddressAndVaultChainID(address _tokenAddress, uint _vaultChainID) public onlyOwner {
+        //MMG07 fixed
         require(_tokenAddress != address(0), "Token address can not be zero address!");
+        //MMG08 fixed
         require(_vaultChainID != _getChainID(), "Vault chain ID can not be current chain Id!");
         tokenAddress = _tokenAddress;
         vaultChainID = _vaultChainID;
