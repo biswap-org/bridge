@@ -1,6 +1,7 @@
 // npx hardhat run scripts/deployMaticTest.js --network testnetMatic
 // const config = require(`../config.json`);
 const { ethers, network } = require(`hardhat`);
+const {expect} = require("chai");
 
 async function main() {
     const vaultChainID = 97;
@@ -20,6 +21,13 @@ async function main() {
 
     await maticMinter.deployed();
     console.log(`MaticMinter contract deployed to:`, maticMinter.address);
+
+    console.log(`Add MaticMinter contract as Minter on token contract`);
+    await maticBSWToken.addMinter(maticMinter.address);
+    if (await maticBSWToken.isMinter(maticMinter.address)){
+        console.log(`Matic minter was successfully added as Minter on token contract`);
+    }
+
 }
 
 main()
