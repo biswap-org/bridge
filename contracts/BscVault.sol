@@ -772,8 +772,12 @@ contract BscVault is Ownable, Pausable, ReentrancyGuard {
     using SafeMath for uint;
     using SafeERC20 for IERC20;
 
-    uint public constant MIN_AMOUNT = 1e18;
+    uint public constant MIN_AMOUNT = 1 ether;
+    uint public maxAmount = 1000 ether;
     uint public swapCommission;
+    uint public maxSwapEndInPhase = 5000 ether;
+    uint public currentPhase = 1;
+    uint public totalSwapEnd;
     address public rootToken;
     address public commissionReceiver;
 
@@ -867,8 +871,9 @@ contract BscVault is Ownable, Pausable, ReentrancyGuard {
         address to,
         uint amount
         ) public onlyActivatedChains(toChainID) whenNotPaused notContract nonReentrant {
-        require(amount >= MIN_AMOUNT && to != address(0));
-        require(IERC20(rootToken).allowance(msg.sender, address(this)) >= amount, "not enough allowance");
+        require(amount >= MIN_AMOUNT && amount <= maxAmount, "Wrong amount");
+        require(to == msg.sender, "Swap accepted only to same account");
+        require(IERC20(rootToken).allowance(msg.sender, address(this)) >= amount, "Not enough allowance");
         _depositToken(amount);
         uint commission;
         if(swapCommission > 0 && msg.sender != commissionReceiver){
@@ -906,12 +911,13 @@ contract BscVault is Ownable, Pausable, ReentrancyGuard {
         ) public onlyOwner onlyActivatedChains(fromChainID) whenNotPaused {
         require(amount > 0 && to != address(0));
         require(amount <= IERC20(rootToken).balanceOf(address(this)), "not enough balance");
-        require(fromChainID != _getChainID(), "Swap only work between different chains");
         uint _chainID = _getChainID();
         //BVG07 fixed
         bytes32 receivedHash = keccak256(abi.encode(depositCount, fromChainID, _chainID, from, to, amount));
         require(receivedHash == eventHash, "Wrong args received");
         require(eventStore[receivedHash].isCompleted == false, "Swap was ended before!");
+        totalSwapEnd = totalSwapEnd.add(amount);
+        require(totalSwapEnd <= currentPhase.mul(maxSwapEndInPhase), "Current phase completed");
         EventStr memory eventStr = EventStr({
             depositCount: depositCount,
             chainID: fromChainID,
@@ -952,6 +958,16 @@ contract BscVault is Ownable, Pausable, ReentrancyGuard {
     function unpause() external onlyOwner whenPaused {
         _unpause();
         emit Unpaused(msg.sender);
+    }
+
+    function setMaxAmount(uint _maxAmount) external onlyOwner{
+        require(_maxAmount > MIN_AMOUNT, "Max amount must be greater than min amount");
+        maxAmount = _maxAmount;
+    }
+
+    function setPhase(uint _newPhase) public onlyOwner returns(bool){
+        currentPhase = _newPhase;
+        return true;
     }
 
     function _transferToken(address to, uint amount) private {

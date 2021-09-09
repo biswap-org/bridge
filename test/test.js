@@ -51,7 +51,7 @@ describe("Check BscVault contract", function() {
     it("Swap \"val\" BSWTokens from BSC to Matic with commission 0.1%", async function(){
         let val = BigNumber.from(100).mul(decimals);
         await bswToken.approve(bscVault.address, val);
-        let tx = await bscVault.swapStart("1", accounts[1].address, val);
+        let tx = await bscVault.swapStart("1", accounts[0].address, val);
         let receipt = await tx.wait();
         let event = receipt.events?.filter((x) => {return x.event === "SwapStart"});
         let swapCommission = await bscVault.swapCommission();
@@ -66,7 +66,7 @@ describe("Check BscVault contract", function() {
         let abiencode = ethers.utils.defaultAbiCoder
             .encode(
             ["uint", "uint", "uint", "address", "address", "uint"],
-            [1, 31337, 31337, accounts[0].address, accounts[1].address, valMinusCommission.toBigInt()]
+            [1, 2, 31337, accounts[1].address, accounts[1].address, valMinusCommission.toBigInt()]
             )
         let testEventHash = ethers.utils.keccak256(abiencode); //need to change to another chainID
 
@@ -81,8 +81,8 @@ describe("Check BscVault contract", function() {
         let txSwapEnd = await maticMinter.swapEnd(
             testEventHash,
             1,
-            31337,
-            accounts[0].address,
+            2,
+            accounts[1].address,
             accounts[1].address,
             valMinusCommission.toBigInt());
 
@@ -101,7 +101,7 @@ describe("Check BscVault contract", function() {
         let balanceBefore = await bswToken.balanceOf(bscVault.address);
         let val = BigNumber.from(100).mul(decimals);
         await bswToken.approve(bscVault.address, val);
-        let tx = await bscVault.swapStart("1", accounts[2].address, val);
+        let tx = await bscVault.swapStart("1", accounts[0].address, val);
         let receipt = await tx.wait();
         let event = receipt.events?.filter((x) => {return x.event === "SwapStart"});
         let balanceAfter = await bswToken.balanceOf(bscVault.address);
@@ -111,15 +111,15 @@ describe("Check BscVault contract", function() {
         let abiencode = ethers.utils.defaultAbiCoder
             .encode(
                 ["uint", "uint", "uint", "address", "address", "uint"],
-                [1, 31337, 31337, accounts[0].address, accounts[2].address, val.toBigInt()]
+                [1, 2, 31337, accounts[2].address, accounts[2].address, val]
             )
         let testEventHash = ethers.utils.keccak256(abiencode); //need to change to another chainID
 
         let txSwapEnd = await maticMinter.swapEnd(
             testEventHash,
             1,
-            31337,
-            accounts[0].address,
+            2,
+            accounts[2].address,
             accounts[2].address,
             val);
 
@@ -137,9 +137,9 @@ describe("Check BscVault contract", function() {
         let currentAlowances = await bswToken.allowance(accounts[0].address, bscVault.address);
         expect(currentAlowances).equal(0);
         await bswToken.approve(bscVault.address, val);
-        await bscVault.swapStart("1", accounts[1].address, val);
-        await expect(bscVault.swapStart("1", accounts[1].address, val)).to.be
-            .revertedWith('not enough allowance');
+        await bscVault.swapStart("1", accounts[0].address, val);
+        await expect(bscVault.swapStart("1", accounts[0].address, val)).to.be
+            .revertedWith('Not enough allowance');
     });
 
     it("Try SwapStart with unregistered ChainID", async function (){
@@ -148,6 +148,51 @@ describe("Check BscVault contract", function() {
         await expect(bscVault.swapStart("2", accounts[1].address, val)).to.be
             .revertedWith('Only activated chains');
     })
+
+    it("Check over max amount swap start bscVault", async function (){
+        let val = BigNumber.from(1000).mul(decimals);
+        await bswToken.approve(bscVault.address, val.mul(decimals));
+        await expect(bscVault.swapStart("1", accounts[0].address, val)).to.be
+            .emit(bscVault, "SwapStart");
+        await expect(bscVault.swapStart("1", accounts[0].address, val.add(1))).to.be
+            .revertedWith('Wrong amount');
+
+    });
+
+    it("Check phase overload on bscVault", async function (){
+        let totalSwapEnd = await maticMinter.totalSwapEnd();
+        let val = BigNumber.from(5000).mul(decimals).sub(totalSwapEnd);
+        let abiencode = ethers.utils.defaultAbiCoder
+            .encode(
+                ["uint", "uint", "uint", "address", "address", "uint"],
+                [1, 2, 31337, accounts[2].address, accounts[2].address, val.add(1)]
+            )
+        let testEventHash = ethers.utils.keccak256(abiencode); //need to change to another chainID
+
+        await expect(maticMinter.swapEnd(
+            testEventHash,
+            1,
+            2,
+            accounts[2].address,
+            accounts[2].address,
+            val.add(1))).to.be.revertedWith("Current phase completed");
+
+        abiencode = ethers.utils.defaultAbiCoder
+            .encode(
+                ["uint", "uint", "uint", "address", "address", "uint"],
+                [1, 2, 31337, accounts[0].address, accounts[0].address, val]
+            )
+        testEventHash = ethers.utils.keccak256(abiencode); //need to change to another chainID
+
+        await expect(maticMinter.swapEnd(
+            testEventHash,
+            1,
+            2,
+            accounts[0].address,
+            accounts[0].address,
+            val)).to.be.emit(maticMinter, "SwapEnd");
+
+    })
 })
 
 describe("Check MaticMinter contract", function(){
@@ -155,7 +200,7 @@ describe("Check MaticMinter contract", function(){
         let val = await maticBSWToken.balanceOf(accounts[1].address);
         await bscVault.setCommission(10, accounts[10].address);
         console.log("Total supply MaticBSWToken before swapStart: ", (await maticBSWToken.totalSupply()).toString());
-        let tx = await maticMinter.connect(accounts[1]).swapStart(accounts[3].address, val);
+        let tx = await maticMinter.connect(accounts[1]).swapStart(accounts[1].address, val);
         let receipt = await tx.wait();
         let event = receipt.events?.filter((x) => {return x.event === "SwapStart"});
         console.log("Event StartSwap with amount: ", (event[0].args["amount"]).toString());
@@ -167,16 +212,16 @@ describe("Check MaticMinter contract", function(){
         let abiencode = ethers.utils.defaultAbiCoder
             .encode(
                 ["uint", "uint", "uint", "address", "address", "uint"],
-                [1, 31337, 31337, accounts[1].address, accounts[3].address, val.toBigInt()]
+                [1, 1, 31337, accounts[1].address, accounts[1].address, val.toBigInt()]
             )
         let testEventHash = ethers.utils.keccak256(abiencode);
 
-        let txSwapEnd = await bscVault.swapEnd(testEventHash, 1, 31337, accounts[1].address, accounts[3].address, val);
+        let txSwapEnd = await bscVault.swapEnd(testEventHash, 1, 1, accounts[1].address, accounts[1].address, val);
         await txSwapEnd.wait();
         let swapCommission = await bscVault.swapCommission();
         let commissionAmount = val.mul(swapCommission).div(10000);
         let valMinusCommission = val.sub(commissionAmount);
-        expect(await bswToken.balanceOf(accounts[3].address)).equal(valMinusCommission);
+        expect(await bswToken.balanceOf(accounts[1].address)).equal(valMinusCommission);
         let txSwapComplete = await maticMinter.setSwapComplete(realHash);
         await txSwapComplete.wait();
         let txEventStore = await maticMinter.eventStore(realHash);
@@ -187,7 +232,7 @@ describe("Check MaticMinter contract", function(){
         let val = await maticBSWToken.balanceOf(accounts[2].address);
         await bscVault.setCommission(0, accounts[10].address);
         console.log("Total supply MaticBSWToken before swapStart: ", (await maticBSWToken.totalSupply()).toString());
-        let tx = await maticMinter.connect(accounts[2]).swapStart(accounts[3].address, val);
+        let tx = await maticMinter.connect(accounts[2]).swapStart(accounts[2].address, val);
         let receipt = await tx.wait();
         let event = receipt.events?.filter((x) => {return x.event === "SwapStart"});
         console.log("Event StartSwap with amount: ", (event[0].args["amount"]).toString());
@@ -199,12 +244,12 @@ describe("Check MaticMinter contract", function(){
         let abiencode = ethers.utils.defaultAbiCoder
             .encode(
                 ["uint", "uint", "uint", "address", "address", "uint"],
-                [1, 31337, 31337, accounts[2].address, accounts[3].address, val.toBigInt()]
+                [1, 1, 31337, accounts[2].address, accounts[2].address, val]
             )
         let testEventHash = ethers.utils.keccak256(abiencode);
 
         console.log("BSCVault account before Swap end", (await bswToken.balanceOf(bscVault.address)).toString())
-        let txSwapEnd = await bscVault.swapEnd(testEventHash, 1, 31337, accounts[2].address, accounts[3].address, val);
+        let txSwapEnd = await bscVault.swapEnd(testEventHash, 1, 1, accounts[2].address, accounts[2].address, val);
         await txSwapEnd.wait();
         let txSwapComplete = await maticMinter.setSwapComplete(realHash);
         await txSwapComplete.wait();
@@ -212,6 +257,29 @@ describe("Check MaticMinter contract", function(){
         expect(txEventStore.isCompleted).equal(true);
         console.log("BSCVault account after Swap end", (await bswToken.balanceOf(bscVault.address)).toString());
     });
+
+    it("Check over max amount swap start maticMinter", async function (){
+        let val = BigNumber.from(1000).mul(decimals);
+        let abiencode = ethers.utils.defaultAbiCoder
+            .encode(
+                ["uint", "uint", "uint", "address", "address", "uint"],
+                [1, 2, 31337, accounts[0].address, accounts[0].address, val.mul(2)]
+            )
+        let testEventHash = ethers.utils.keccak256(abiencode); //need to change to another chainID
+        await maticMinter.setPhase(2);
+        let txSwapEnd = await maticMinter.swapEnd(
+            testEventHash,
+            1,
+            2,
+            accounts[0].address,
+            accounts[0].address,
+            val.mul(2));
+        await expect(maticMinter.swapStart(accounts[0].address, val)).to.be
+            .emit(maticMinter, "SwapStart");
+        await expect(maticMinter.swapStart(accounts[0].address, val.add(1))).to.be
+            .revertedWith('Wrong amount');
+    });
+
 
 
 })

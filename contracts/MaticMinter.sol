@@ -727,6 +727,10 @@ contract MaticMinter is Ownable, Pausable, ReentrancyGuard{
     using SafeMath for uint;
 
     uint public constant MIN_AMOUNT = 1e18;
+    uint public maxAmount = 1000 ether;
+    uint public maxSwapEndInPhase = 5000 ether;
+    uint public currentPhase = 1;
+    uint public totalSwapEnd;
     address public tokenAddress;
     uint public depositCount;
     uint public vaultChainID;
@@ -775,7 +779,8 @@ contract MaticMinter is Ownable, Pausable, ReentrancyGuard{
     }
 
     function swapStart(address to, uint amount) public whenNotPaused notContract nonReentrant {
-        require(amount >= MIN_AMOUNT && to != address(0), "Wrong amount or address to");
+        require(amount >= MIN_AMOUNT && amount <= maxAmount, "Wrong amount");
+        require(to == msg.sender, "Swap accepted only to same account");
         require(IERC20(tokenAddress).balanceOf(msg.sender) >= amount, "Not enough balance");
         IERC20(tokenAddress).safeBurn(msg.sender, amount);
         //MMG04 fixed
@@ -813,6 +818,8 @@ contract MaticMinter is Ownable, Pausable, ReentrancyGuard{
         bytes32 receivedHash = keccak256(abi.encode(_depositCount, fromChainID, _chainID, from, to, amount));
         require(receivedHash == eventHash, "Wrong args received");
         require(eventStore[receivedHash].isCompleted == false, "Swap was ended before!");
+        totalSwapEnd = totalSwapEnd.add(amount);
+        require(totalSwapEnd <= currentPhase.mul(maxSwapEndInPhase), "Current phase completed");
         EventStr memory eventStr = EventStr({
             depositCount: _depositCount,
             chainID: fromChainID,
@@ -849,6 +856,17 @@ contract MaticMinter is Ownable, Pausable, ReentrancyGuard{
         _unpause();
         emit Unpaused(msg.sender);
     }
+
+    function setMaxAmount(uint _maxAmount) external onlyOwner{
+        require(_maxAmount > MIN_AMOUNT, "Max amount must be greater than min amount");
+        maxAmount = _maxAmount;
+    }
+
+    function setPhase(uint _newPhase) public onlyOwner returns(bool){
+        currentPhase = _newPhase;
+        return true;
+    }
+
     //MMG03 fixed
     function _getChainID() internal pure returns (uint) {
         uint id;
