@@ -7,8 +7,8 @@ During the reverse exchange in the direction of `Polygon => BSC`, tokens are bur
 and are unlocked in the BSC network from the `BscVault` contract.
 > Calling of the functions of completion of exchanges is realized through the server.
 
-## ***Exchange `BSC => Polygon`***
-1. The exchange is initiated by the user by calling the `swapStart` function of the` BscVault` contract in the BSC network
+## ***`Private sale` begins with the deployment of this smart contract***
+1. To participate in the `token-sale`, the user must be authorized to buy. To do this, the owner (deployer) of the contract must add him to the `whitelist`  
 ```solidity
    function swapStart (
       uint toChainID,
@@ -43,46 +43,31 @@ event `SwapEnd (receivedHash, _depositCount, fromChainID, from, to, amount)` c c
 ```
    The exchange is complete.
 
-## ***Exchange `Polygon => BSC`***
-1. The exchange is initiated by the user by calling the `swapStart` function of the` MaticMinter` contract in the Polygon network (MATIC)
+## ***How to participate in the purchase `Narfex`***
+1. Sale starts when `owner` (deployer) deploy this smart contract in mainnet, you have `timeEndSale` in seconds to participate in the `token-sale`
+
+2. To participate in the `token-sale`, the user must be authorized to buy. To do this, the owner (deployer) of the contract must add him to the `whitelist`
 ```solidity
-   function swapStart (address to, uint amount)
+    function addWhitelist(address _address)
 ```
-   In this case, the amount of `amount` is burned from the user's balance
+   In this case, `address` is address of user, whose allowed to buy tokens.
 
-On successful execution of the function, event is generated
-`SwapStart (eventHash, _depositCount, vaultChainID, msg.sender, to, amount)`
-
-2. Upon receipt of event `SwapStart` from the contract` MaticMinter` in the Polygon network (MATIC),
-   the server calls the `swapEnd` function of the` BscVault` contract on the BSC network:
+3. Then you should deposit your BUSD tokens to buy Narfex by `firstNarfexPrice` - fixed price of Narfex
 ```solidity
-   function swapEnd (
-      bytes32 eventHash,
-      uint depositCount,
-      uint fromChainID,
-      address from,
-      address to,
-      uint amount)
+   function buyTokens(uint256 amount)
 ```
-   The BscVault contract in the BSC network will unlock the BSW Token amount in the BSC network in favor of the address to
-   for the amount `amount` minus the commission
+   `amount` it is your deposit in BUSD. Your tokens will be locked in this contract for period of time
 
-Successful execution of the function results in
-event `SwapEnd (receivedHash, depositCount, fromChainID, from, to, amount)` from contract `BscVault` on the BSC network.
-
-3. When the server receives event `SwapEnd` from the` BscVault` contract in the BSC network,
-   the exchange is completed by calling the `setSwapComplete` function of the` MaticMinter` contract in the Polygon network (MATIC):
+4. After 60 days from `boughtTime` you have allowance to unlock tokens for the amount equivalent to the deposit in BUSD. And every 120 days after unlocking from the previous item, you can receive 10 percent of the remaining locked amount of Narfex. 
 ```solidity
-   function setSwapComplete (bytes32 eventHash)
+   function unlock()
 ```
-   The exchange is complete.
-
-## ***Controlling the integrity of the token balance***
-
-Upon completion of all exchanges, if the condition
-> `depositCount` of contract` MaticMinter` == `registeredChains [MaticChainId] .depositCount` of contract` BscVault`
-
-the balance of the `BscVault` contract must equal` totalSupply () `BSW token in the Polygon network (MATIC)
-
-Thus, with completed exchanges on the side of the `BscVault` contract:
-> `totalSupply ()` BSW token in the Polygon network (MATIC) can be equal to or less than the BSW token balance of the `BscVault` contract
+   The sale is complete.
+   
+5. You can also `withdraw` any unlocked amount of Narfex tokens available to you at any time.   
+```solidity
+   function withdraw(uint256 _numberOfTokens)
+```
+   `_numberOfTokens` - amont of tokens which you would like to spend
+   
+## ***For now you already know how to buy Narfex in private sale Good luck***
